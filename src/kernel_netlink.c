@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 25
+ *     Update #: 26
  * URL:
  * Doc URL:
  * Keywords:
@@ -21,6 +21,8 @@
 #include <net/sock.h>
 #include <linux/netlink.h>
 #include <linux/skbuff.h>
+
+#include "nl_msg.h"
 
 struct sock *nl_sk = NULL;
 

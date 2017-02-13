@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 2
+ *     Update #: 6
  * URL:
  * Doc URL:
  * Keywords:
@@ -25,6 +25,16 @@
 #define DST_KERNEL 0
 #define NL_FR_SZ 16384
 #define MMAP_SZ 131072
+
+typedef struct __ring_t_ {
+    int fd;
+    void *rx_ring;
+    void *tx_ring;
+    unsigned int blk_sz;
+    unsigned int ring_sz;
+    unsigned int tx_offset;
+    unsigned int rx_offset;
+} ring_t;
 
 #endif
 /* userspace_netlink.h ends here */

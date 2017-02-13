@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 41
+ *     Update #: 91
  * URL:
  * Doc URL:
  * Keywords:
@@ -29,45 +29,90 @@
 #include <err.h>
 
 #include "userspace_netlink.h"
+#include "nl_msg.h"
 
-int main() {
+inline void advoffset(unsigned *offset, unsigned int adv_to, unsigned int ring_sz) {
+    *offset = (*offset + adv_to) % ring_sz;
+}
+
+int msg_send(ring_t *r, char *data, size_t len) {
+    struct nl_mmap_hdr *fr_hdr;
+    struct nlmsghdr *nlh;
+    struct sockaddr_nl addr = {
+        .nl_family = AF_NETLINK,
+    };
+    us_nl_msg_t *message = NULL;
+    void *user_data = NULL;
+
+    fr_hdr = r->tx_ring + r->tx_offset;
+
+    if (fr_hdr->nm_status != NL_MMAP_STATUS_UNUSED) /* No frame available. Use poll() to avoid. */
+        exit(1);
+
+    nlh = (void *)fr_hdr + NL_MMAP_HDRLEN;
+
+    nlh->nlmsg_len = NLMSG_SPACE(sizeof(ring_t) + len);
+    nlh->nlmsg_pid = getpid();
+    nlh->nlmsg_flags = 0;
+
+    message = (us_nl_msg_t *)nlh + sizeof(struct nlmsghdr);
+    message->type = MSG_OK | MSG_PING;
+    message->len = len;
+
+    user_data = (void *)message + sizeof(us_nl_msg_t);
+
+    memcpy(user_data, data, len);
+
+    /* Fill frame header: length and status need to be set */
+    fr_hdr->nm_len = nlh->nlmsg_len;
+    fr_hdr->nm_status = NL_MMAP_STATUS_VALID;
+
+    if (sendto(r->fd, NULL, 0, 0, (const struct sockaddr *)&addr, sizeof(addr)) < 0) return 0;
+
+    advoffset(&r->tx_offset, NL_MMAP_HDRLEN + sizeof(struct nlmsghdr) + sizeof(us_nl_msg_t) + len, r->ring_sz);
+
+    return 1;
+}
+
+int main(int argc, char **argv) {
     struct sockaddr_nl src_addr, dest_addr;
     struct nlmsghdr *nlh = NULL;
     struct iovec iov;
-    int sock_fd;
     struct msghdr msg;
-    unsigned int blk_sz, ring_sz = MMAP_SZ / 2;
     struct nl_mmap_req req;
-    unsigned char *rx_ring = NULL, *tx_ring = NULL;
+    char *message = "Message to kernel from userspace application";
+    ring_t r;
 
-    if ((sock_fd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_USERSOCK)) < 0)
+    memset((void *)&r, 0, sizeof(r));
+    r.ring_sz = MMAP_SZ / 2;
+    r.blk_sz = 16 * getpagesize();
+
+    if ((r.fd = socket(AF_NETLINK, SOCK_DGRAM, NETLINK_USERSOCK)) < 0)
         err(EXIT_FAILURE, "socket() ");
 
     memset(&src_addr, 0, sizeof(src_addr));
     src_addr.nl_family = AF_NETLINK;
     src_addr.nl_pid = getpid();
 
-    if (bind(sock_fd, (struct sockaddr *)&src_addr, sizeof(src_addr)) < 0)
+    if (bind(r.fd, (struct sockaddr *)&src_addr, sizeof(src_addr)) < 0)
         err(EXIT_FAILURE, "bind() ");
 
-    blk_sz = 16 * getpagesize();
-
     /* Memory mapped Netlink operation request */
-    req.nm_block_size = blk_sz;
-    req.nm_block_nr = (unsigned int)ring_sz / blk_sz;
+    req.nm_block_size = r.blk_sz;
+    req.nm_block_nr = (unsigned int)r.ring_sz / r.blk_sz;
     req.nm_frame_size = NL_FR_SZ;
-    req.nm_frame_nr = ring_sz / NL_FR_SZ;
+    req.nm_frame_nr = r.ring_sz / NL_FR_SZ;
 
-    if (setsockopt(sock_fd, SOL_NETLINK, NETLINK_RX_RING, &req, sizeof(req)) < 0)
+    if (setsockopt(r.fd, SOL_NETLINK, NETLINK_RX_RING, &req, sizeof(req)) < 0)
         err(EXIT_FAILURE, "cannot setup netlink rx ring ");
-    if (setsockopt(sock_fd, SOL_NETLINK, NETLINK_TX_RING, &req, sizeof(req)) < 0)
+    if (setsockopt(r.fd, SOL_NETLINK, NETLINK_TX_RING, &req, sizeof(req)) < 0)
         err(EXIT_FAILURE, "cannot setup netlink tx ring ");
 
-    rx_ring = (char *)mmap(NULL, MMAP_SZ, PROT_READ | PROT_WRITE, MAP_SHARED, sock_fd, 0);
+    r.rx_ring = (char *)mmap(NULL, MMAP_SZ, PROT_READ | PROT_WRITE, MAP_SHARED, r.fd, 0);
 
-    if (-1L == (long)rx_ring) err(EXIT_FAILURE, "mapping failed ");
+    if (-1L == (long)r.rx_ring) err(EXIT_FAILURE, "memory mapping failed ");
 
-    tx_ring = rx_ring + ring_sz;
+    r.tx_ring = r.rx_ring + r.ring_sz;
 
     memset(&dest_addr, 0, sizeof(dest_addr));
 
@@ -75,38 +120,19 @@ int main() {
     dest_addr.nl_pid = DST_KERNEL;
     dest_addr.nl_groups = NETLINK_UNICAST_SEND;
 
-    if ((nlh = (struct nlmsghdr *)calloc(1, NLMSG_SPACE(MAX_PAYLOAD))) == NULL)
-        err(EXIT_FAILURE, "calloc() ");
-
-    nlh->nlmsg_len = NLMSG_SPACE(MAX_PAYLOAD);
-    nlh->nlmsg_pid = getpid();
-    nlh->nlmsg_flags = 0;
-
-    strcpy(NLMSG_DATA(nlh), "Hello from userspace");
-
-    iov.iov_base = (void *)nlh;
-    iov.iov_len = nlh->nlmsg_len;
-
-    memset((void *)&msg, 0, sizeof(msg));
-
-    msg.msg_name = (void *)&dest_addr;
-    msg.msg_namelen = sizeof(dest_addr);
-    msg.msg_iov = &iov;
-    msg.msg_iovlen = 1;
-
     printf("Sending message to kernel\n");
 
-    if (sendmsg(sock_fd, &msg, 0) < 0) err(EXIT_FAILURE, "Sending error ", strerror(errno));
+    if (msg_send(&r, message, strlen(message) + 1) == 0) err(EXIT_FAILURE, "Sending error ", strerror(errno));
 
     printf("Waiting for message from kernel\n");
 
-    if (recvmsg(sock_fd, &msg, 0) < 0) err(EXIT_FAILURE, "Receive error ", strerror(errno));
+    if (recvmsg(r.fd, &msg, 0) < 0) err(EXIT_FAILURE, "Receive error ", strerror(errno));
 
     printf("Received message payload: %s\n", (char *)NLMSG_DATA(nlh));
 
-    munmap(rx_ring, ring_sz * 2);
+    munmap(r.rx_ring, r.ring_sz * 2);
 
-    close(sock_fd);
+    close(r.fd);
 }
 
 /* userspace_netlink_mmaped.c ends here */
