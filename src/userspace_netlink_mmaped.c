@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 91
+ *     Update #: 133
  * URL:
  * Doc URL:
  * Keywords:
@@ -35,43 +35,52 @@ inline void advoffset(unsigned *offset, unsigned int adv_to, unsigned int ring_s
     *offset = (*offset + adv_to) % ring_sz;
 }
 
-int msg_send(ring_t *r, char *data, size_t len) {
+int msg_send(ring_t *r, char *data, size_t data_len) {
     struct nl_mmap_hdr *fr_hdr;
     struct nlmsghdr *nlh;
     struct sockaddr_nl addr = {
         .nl_family = AF_NETLINK,
+        .nl_pid = DST_KERNEL,
+        .nl_groups = NETLINK_UNICAST_SEND,
     };
     us_nl_msg_t *message = NULL;
-    void *user_data = NULL;
+    char *user_data = NULL;
+    int bytes_sent = 0;
 
     fr_hdr = r->tx_ring + r->tx_offset;
 
     if (fr_hdr->nm_status != NL_MMAP_STATUS_UNUSED) /* No frame available. Use poll() to avoid. */
-        exit(1);
+        return 0;
 
     nlh = (void *)fr_hdr + NL_MMAP_HDRLEN;
 
-    nlh->nlmsg_len = NLMSG_SPACE(sizeof(ring_t) + len);
+    nlh->nlmsg_len = NLMSG_SPACE(sizeof(us_nl_msg_t) + data_len);
     nlh->nlmsg_pid = getpid();
-    nlh->nlmsg_flags = 0;
+    nlh->nlmsg_flags  |= NLM_F_REQUEST;
+    nlh->nlmsg_type = NLMSG_MIN_TYPE + 1;
 
-    message = (us_nl_msg_t *)nlh + sizeof(struct nlmsghdr);
+    message = (us_nl_msg_t*)NLMSG_DATA(nlh);
+    memset(message, 0, sizeof(us_nl_msg_t) + data_len);
+
     message->type = MSG_OK | MSG_PING;
-    message->len = len;
+    message->len = data_len;
 
-    user_data = (void *)message + sizeof(us_nl_msg_t);
+    user_data = (char *)((void*)message + sizeof(us_nl_msg_t));
 
-    memcpy(user_data, data, len);
+    if(memcpy(user_data, data, data_len) == NULL) return 0;
 
-    /* Fill frame header: length and status need to be set */
     fr_hdr->nm_len = nlh->nlmsg_len;
     fr_hdr->nm_status = NL_MMAP_STATUS_VALID;
+    fr_hdr->nm_group = 0;
+    fr_hdr->nm_pid = 0;
 
-    if (sendto(r->fd, NULL, 0, 0, (const struct sockaddr *)&addr, sizeof(addr)) < 0) return 0;
+    if ((bytes_sent = sendto(r->fd, NULL, 0, 0, (const struct sockaddr *)&addr, sizeof(addr))) < 0)
+        return 0;
 
-    advoffset(&r->tx_offset, NL_MMAP_HDRLEN + sizeof(struct nlmsghdr) + sizeof(us_nl_msg_t) + len, r->ring_sz);
+    advoffset(&r->tx_offset, NL_MMAP_HDRLEN + sizeof(struct nlmsghdr) + sizeof(us_nl_msg_t) + data_len,
+              r->ring_sz);
 
-    return 1;
+    return bytes_sent;
 }
 
 int main(int argc, char **argv) {
@@ -80,8 +89,9 @@ int main(int argc, char **argv) {
     struct iovec iov;
     struct msghdr msg;
     struct nl_mmap_req req;
-    char *message = "Message to kernel from userspace application";
+    char *message = "So logn-long-long message to kernel from userspace application. Bla-bla-bla! Hello!";
     ring_t r;
+    int bytes_sent = 0;
 
     memset((void *)&r, 0, sizeof(r));
     r.ring_sz = MMAP_SZ / 2;
@@ -120,10 +130,10 @@ int main(int argc, char **argv) {
     dest_addr.nl_pid = DST_KERNEL;
     dest_addr.nl_groups = NETLINK_UNICAST_SEND;
 
-    printf("Sending message to kernel\n");
+    if ((bytes_sent = msg_send(&r, message, strlen(message) + 1)) == 0)
+        err(EXIT_FAILURE, "Sending error ", strerror(errno));
 
-    if (msg_send(&r, message, strlen(message) + 1) == 0) err(EXIT_FAILURE, "Sending error ", strerror(errno));
-
+    printf("Message size: %d, %d bytes sent to kernel\n", strlen(message), bytes_sent);
     printf("Waiting for message from kernel\n");
 
     if (recvmsg(r.fd, &msg, 0) < 0) err(EXIT_FAILURE, "Receive error ", strerror(errno));

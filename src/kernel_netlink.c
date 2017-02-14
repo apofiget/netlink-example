@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 26
+ *     Update #: 110
  * URL:
  * Doc URL:
  * Keywords:
@@ -26,45 +26,46 @@
 
 struct sock *nl_sk = NULL;
 
-static void hello_nl_recv_msg(struct sk_buff *skb) {
-    struct nlmsghdr *nlh;
-    int pid;
-    struct sk_buff *skb_out;
-    int msg_size;
-    char *msg = "Hello from kernel";
-    int res;
+static int hello_nl_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh) {
+    us_nl_msg_t *msg;
+    char *usr_message;
 
     printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
-    msg_size = strlen(msg);
-
-    nlh = (struct nlmsghdr *)skb->data;
-
-    printk(KERN_INFO "Netlink received msg payload:%s\n", (char *)nlmsg_data(nlh));
-    pid = nlh->nlmsg_pid;
-
-    skb_out = nlmsg_new(msg_size, 0);
-
-    if (!skb_out) {
-        printk(KERN_ERR "Failed to allocate new skb\n");
-        return;
+    if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(us_nl_msg_t)) {
+        printk(KERN_ALERT "Message to short %d", nlh->nlmsg_len);
+        return -EINVAL;
     }
 
-    nlh = nlmsg_put(skb_out, 0, 0, NLMSG_DONE, msg_size, 0);
-    NETLINK_CB(skb_out).dst_group = 0; /* not in mcast group */
+    msg = nlmsg_data(nlh);
+    usr_message = (char *)((void*)msg + sizeof(us_nl_msg_t));
 
-    strncpy(nlmsg_data(nlh), msg, msg_size);
+    printk(KERN_INFO "[%u] User msg type (%d) , payload len: %d, message %s\n", nlh->nlmsg_pid, msg->type,
+           (int)msg->len, usr_message);
+    print_hex_dump(KERN_INFO, "mem:", DUMP_PREFIX_ADDRESS, 16, 1, (const void*)usr_message, msg->len, 1);
 
-    res = nlmsg_unicast(nl_sk, skb_out, pid);
+    return 1;
+}
 
-    if (res < 0) printk(KERN_INFO "Error while sending bak to user\n");
+static void if_rcv(struct sk_buff *skb) {
+    struct nlmsghdr *nlh;
+    int ret;
+
+    nlh = nlmsg_hdr(skb);
+
+    printk("Entering: %s, nlh_len %d sk len %d data len %d\n", __FUNCTION__, nlh->nlmsg_len,
+           skb->len, skb->data_len);
+
+    ret = netlink_rcv_skb(skb, &hello_nl_recv_msg);
+
+    printk("netlink_rcv_skb return %d\n", ret);
 }
 
 static int __init kern_netlink_init(void) {
     printk("Entering: %s\n", __FUNCTION__);
 
     struct netlink_kernel_cfg cfg = {
-        .groups = 0, .input = hello_nl_recv_msg,
+        .input = if_rcv,
     };
 
     nl_sk = netlink_kernel_create(&init_net, NETLINK_USERSOCK, &cfg);
