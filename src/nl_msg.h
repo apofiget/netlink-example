@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 7
+ *     Update #: 9
  * URL:
  * Doc URL:
  * Keywords:
@@ -19,6 +19,9 @@
 
 #ifndef __NL_MSG_H_
 #define __NL_MSG_H_
+
+#define MAX_PAYLOAD 1024
+#define NL_FR_SZ 16384
 
 typedef enum { MSG_PING = 2, MSG_PONG = 4, MSG_OK = 1 } m_type_t;
 

@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 110
+ *     Update #: 139
  * URL:
  * Doc URL:
  * Keywords:
@@ -26,6 +26,29 @@
 
 struct sock *nl_sk = NULL;
 
+static int hello_nl_send_msg(struct sk_buff *skb, struct netlink_callback *cb) {
+    struct nlmsghdr *nlh;
+    us_nl_msg_t *resp;
+    const char *resp_msg = "Hello user-space application from Linux kernel via mmaped Netlink API!";
+    int msg_len;
+
+    printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
+
+    if (!(nlh = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq, cb->nlh->nlmsg_type,
+                          MAX_PAYLOAD, 0)))
+        return -EMSGSIZE;
+
+    msg_len = strlen(resp_msg) + 1;
+
+    resp = nlmsg_data(nlh);
+    resp->type = MSG_PONG | MSG_OK;
+    resp->len = msg_len;
+
+    memcpy((void *)(resp + sizeof(us_nl_msg_t)), resp_msg, msg_len);
+
+    return 0;
+}
+
 static int hello_nl_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh) {
     us_nl_msg_t *msg;
     char *usr_message;
@@ -38,13 +61,21 @@ static int hello_nl_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh) {
     }
 
     msg = nlmsg_data(nlh);
-    usr_message = (char *)((void*)msg + sizeof(us_nl_msg_t));
+    usr_message = (char *)((void *)msg + sizeof(us_nl_msg_t));
 
-    printk(KERN_INFO "[%u] User msg type (%d) , payload len: %d, message %s\n", nlh->nlmsg_pid, msg->type,
-           (int)msg->len, usr_message);
-    print_hex_dump(KERN_INFO, "mem:", DUMP_PREFIX_ADDRESS, 16, 1, (const void*)usr_message, msg->len, 1);
+    printk(KERN_INFO "[%u] User msg type (%d) , payload len: %d, message %s\n", nlh->nlmsg_pid,
+           msg->type, (int)msg->len, usr_message);
+    print_hex_dump(KERN_INFO, "mem:", DUMP_PREFIX_ADDRESS, 16, 1, (const void *)usr_message,
+                   msg->len, 1);
 
-    return 1;
+    if (msg->type | MSG_PING) {
+        struct netlink_dump_control c = {
+            .dump = hello_nl_send_msg, .data = msg, .min_dump_alloc = NL_FR_SZ / 2,
+        };
+        return netlink_dump_start(nl_sk, skb, nlh, &c);
+    }
+
+    return 0;
 }
 
 static void if_rcv(struct sk_buff *skb) {

@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 6
+ *     Update #: 9
  * URL:
  * Doc URL:
  * Keywords:
@@ -23,7 +23,6 @@
 #define MAX_PAYLOAD 1024
 #define NETLINK_UNICAST_SEND 0
 #define DST_KERNEL 0
-#define NL_FR_SZ 16384
 #define MMAP_SZ 131072
 
 typedef struct __ring_t_ {
