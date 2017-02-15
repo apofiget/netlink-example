@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 139
+ *     Update #: 164
  * URL:
  * Doc URL:
  * Keywords:
@@ -28,23 +28,27 @@ struct sock *nl_sk = NULL;
 
 static int hello_nl_send_msg(struct sk_buff *skb, struct netlink_callback *cb) {
     struct nlmsghdr *nlh;
-    us_nl_msg_t *resp;
-    const char *resp_msg = "Hello user-space application from Linux kernel via mmaped Netlink API!";
+    us_nl_msg_t *resp, *req = cb->data;
     int msg_len;
+    char *resp_msg = NULL;
 
     printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
+    msg_len = req->len;
+
     if (!(nlh = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq, cb->nlh->nlmsg_type,
-                          MAX_PAYLOAD, 0)))
+                          sizeof(us_nl_msg_t) + msg_len, 0)))
         return -EMSGSIZE;
 
-    msg_len = strlen(resp_msg) + 1;
+    resp_msg = (char*)((void*)req + sizeof(us_nl_msg_t));
+    resp = (us_nl_msg_t *)nlmsg_data(nlh);
 
-    resp = nlmsg_data(nlh);
-    resp->type = MSG_PONG | MSG_OK;
+    resp->type = MSG_PONG | MSG_OK | MSG_DATA;
     resp->len = msg_len;
 
-    memcpy((void *)(resp + sizeof(us_nl_msg_t)), resp_msg, msg_len);
+    memcpy((void *)((void*)resp + sizeof(us_nl_msg_t)), resp_msg, msg_len);
+
+    printk(KERN_INFO "Sending %lu/%lu bytes to userspace.\n", resp->len, sizeof(us_nl_msg_t) + resp->len);
 
     return 0;
 }
@@ -63,10 +67,8 @@ static int hello_nl_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh) {
     msg = nlmsg_data(nlh);
     usr_message = (char *)((void *)msg + sizeof(us_nl_msg_t));
 
-    printk(KERN_INFO "[%u] User msg type (%d) , payload len: %d, message %s\n", nlh->nlmsg_pid,
+    printk(KERN_INFO "User (%u) msg type (%d) , payload len: %d, message %s\n", nlh->nlmsg_pid,
            msg->type, (int)msg->len, usr_message);
-    print_hex_dump(KERN_INFO, "mem:", DUMP_PREFIX_ADDRESS, 16, 1, (const void *)usr_message,
-                   msg->len, 1);
 
     if (msg->type | MSG_PING) {
         struct netlink_dump_control c = {

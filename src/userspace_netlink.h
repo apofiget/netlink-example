@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 9
+ *     Update #: 12
  * URL:
  * Doc URL:
  * Keywords:
@@ -33,6 +33,7 @@ typedef struct __ring_t_ {
     unsigned int ring_sz;
     unsigned int tx_offset;
     unsigned int rx_offset;
+    pid_t own_pid;
 } ring_t;
 
 #endif

@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 9
+ *     Update #: 11
  * URL:
  * Doc URL:
  * Keywords:
@@ -23,12 +23,12 @@
 #define MAX_PAYLOAD 1024
 #define NL_FR_SZ 16384
 
-typedef enum { MSG_PING = 2, MSG_PONG = 4, MSG_OK = 1 } m_type_t;
+typedef enum { MSG_OK = 1, MSG_PING = 2, MSG_PONG = 4, MSG_DATA = 8  } m_type_t;
 
 typedef struct __nl_msg_ {
     m_type_t type; /* Message type */
     size_t len; /* Payload length */
-} us_nl_msg_t;
+} __attribute__((packed)) us_nl_msg_t;
 
 #endif
 /* nl_msg.h ends here */
