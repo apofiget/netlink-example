@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 164
+ *     Update #: 189
  * URL:
  * Doc URL:
  * Keywords:
@@ -26,29 +26,58 @@
 
 struct sock *nl_sk = NULL;
 
+static char *print_out_m_type(m_type_t message) {
+    static char out[64];
+    char *ptr = NULL;
+    size_t i = 0;
+    int len = 0;
+    struct mtypes {
+        m_type_t type;
+        char *name;
+    } m_array[] = {{MSG_OK, "MSG_OK"},
+                   {MSG_PING, "MSG_PING"},
+                   {MSG_PONG, "MSG_PONG"},
+                   {MSG_DATA, "MSG_DATA"}};
+
+    ptr = out;
+
+    for (i = 0; i < sizeof(m_array) / sizeof(m_array[0]); i++) {
+        if (message & m_array[i].type) {
+            len = sprintf(ptr, " %s |", m_array[i].name);
+            ptr = (char *)((size_t)ptr + (size_t)len);
+        }
+    }
+
+    sprintf(((char *)(void *) ptr - 1), "(%d)", message);
+
+    return out;
+}
+
 static int hello_nl_send_msg(struct sk_buff *skb, struct netlink_callback *cb) {
     struct nlmsghdr *nlh;
     us_nl_msg_t *resp, *req = cb->data;
-    int msg_len;
+    int msg_len = 0;
     char *resp_msg = NULL;
 
-    printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
-
-    msg_len = req->len;
+    if (cb->data != NULL) msg_len = req->len;
 
     if (!(nlh = nlmsg_put(skb, NETLINK_CB(cb->skb).portid, cb->nlh->nlmsg_seq, cb->nlh->nlmsg_type,
                           sizeof(us_nl_msg_t) + msg_len, 0)))
         return -EMSGSIZE;
 
-    resp_msg = (char*)((void*)req + sizeof(us_nl_msg_t));
     resp = (us_nl_msg_t *)nlmsg_data(nlh);
 
-    resp->type = MSG_PONG | MSG_OK | MSG_DATA;
-    resp->len = msg_len;
+    if (req->type & MSG_DATA) {
+        resp_msg = (char *)((void *)req + sizeof(us_nl_msg_t));
+        resp->type = MSG_OK | MSG_DATA;
+        resp->len = msg_len;
+        memcpy((void *)((void *)resp + sizeof(us_nl_msg_t)), resp_msg, msg_len);
+    }
 
-    memcpy((void *)((void*)resp + sizeof(us_nl_msg_t)), resp_msg, msg_len);
+    if (req->type & MSG_PING) resp->type |= (MSG_OK | MSG_PONG);
 
-    printk(KERN_INFO "Sending %lu/%lu bytes to userspace.\n", resp->len, sizeof(us_nl_msg_t) + resp->len);
+    printk(KERN_INFO "Sending %lu/%lu bytes to userspace.\n", resp->len,
+           sizeof(us_nl_msg_t) + resp->len);
 
     return 0;
 }
@@ -56,8 +85,6 @@ static int hello_nl_send_msg(struct sk_buff *skb, struct netlink_callback *cb) {
 static int hello_nl_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh) {
     us_nl_msg_t *msg;
     char *usr_message;
-
-    printk(KERN_INFO "Entering: %s\n", __FUNCTION__);
 
     if (nlh->nlmsg_len < sizeof(*nlh) + sizeof(us_nl_msg_t)) {
         printk(KERN_ALERT "Message to short %d", nlh->nlmsg_len);
@@ -67,36 +94,26 @@ static int hello_nl_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh) {
     msg = nlmsg_data(nlh);
     usr_message = (char *)((void *)msg + sizeof(us_nl_msg_t));
 
-    printk(KERN_INFO "User (%u) msg type (%d) , payload len: %d, message %s\n", nlh->nlmsg_pid,
-           msg->type, (int)msg->len, usr_message);
+    printk(KERN_INFO "From [%u] msg type %s , payload len: %d, message %.*s\n", nlh->nlmsg_pid,
+           print_out_m_type(msg->type), (int)msg->len, (int)msg->len, usr_message);
 
-    if (msg->type | MSG_PING) {
-        struct netlink_dump_control c = {
-            .dump = hello_nl_send_msg, .data = msg, .min_dump_alloc = NL_FR_SZ / 2,
-        };
-        return netlink_dump_start(nl_sk, skb, nlh, &c);
-    }
+    struct netlink_dump_control c = {
+        .dump = hello_nl_send_msg, .data = msg, .min_dump_alloc = NL_FR_SZ / 2,
+    };
 
-    return 0;
+    return netlink_dump_start(nl_sk, skb, nlh, &c);
+
 }
 
 static void if_rcv(struct sk_buff *skb) {
     struct nlmsghdr *nlh;
-    int ret;
 
     nlh = nlmsg_hdr(skb);
 
-    printk("Entering: %s, nlh_len %d sk len %d data len %d\n", __FUNCTION__, nlh->nlmsg_len,
-           skb->len, skb->data_len);
-
-    ret = netlink_rcv_skb(skb, &hello_nl_recv_msg);
-
-    printk("netlink_rcv_skb return %d\n", ret);
+    netlink_rcv_skb(skb, &hello_nl_recv_msg);
 }
 
 static int __init kern_netlink_init(void) {
-    printk("Entering: %s\n", __FUNCTION__);
-
     struct netlink_kernel_cfg cfg = {
         .input = if_rcv,
     };
@@ -113,7 +130,6 @@ static int __init kern_netlink_init(void) {
 }
 
 static void __exit kern_netlink_exit(void) {
-    printk(KERN_INFO "exiting kernel_netink module\n");
     netlink_kernel_release(nl_sk);
 }
 

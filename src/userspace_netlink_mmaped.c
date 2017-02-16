@@ -9,7 +9,7 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 236
+ *     Update #: 268
  * URL:
  * Doc URL:
  * Keywords:
@@ -31,6 +31,33 @@
 
 #include "userspace_netlink.h"
 #include "nl_msg.h"
+
+char *print_out_m_type(m_type_t message) {
+    static char out[64];
+    char *ptr = NULL;
+    size_t i = 0;
+    int len = 0;
+    struct mtypes {
+        m_type_t type;
+        char *name;
+    } m_array[] = {{MSG_OK, "MSG_OK"},
+                   {MSG_PING, "MSG_PING"},
+                   {MSG_PONG, "MSG_PONG"},
+                   {MSG_DATA, "MSG_DATA"}};
+
+    ptr = out;
+
+    for (i = 0; i < sizeof(m_array) / sizeof(m_array[0]); i++) {
+        if (message & m_array[i].type) {
+            len = sprintf(ptr, " %s |", m_array[i].name);
+            ptr = (char *)((size_t)ptr + (size_t)len);
+        }
+    }
+
+    sprintf(((char *)(void *) ptr - 1), "(%d)", message);
+
+    return out;
+}
 
 inline void adv_offset(unsigned *offset, unsigned int adv_to, unsigned int ring_sz) {
     *offset = (*offset + adv_to) % ring_sz;
@@ -67,7 +94,9 @@ void process_msg(struct nlmsghdr *nlh) {
     msg = (us_nl_msg_t *)((void *)nlh + sizeof(struct nlmsghdr));
     data = (void *)((void *)msg + sizeof(us_nl_msg_t));
 
-    printf("Message from kernel. Type: %d , data len: %d , data: %.*s\n", msg->type, msg->len, msg->len, (char*)data);
+    printf("Message from kernel. Type: %s , data len: %d , data: %.*s\n",
+           print_out_m_type(msg->type), msg->len, (msg->len == 0 ? strlen("NONE") : msg->len),
+           (msg->len == 0 ? "NONE" : (char *)data));
 
     return;
 }
@@ -97,15 +126,13 @@ int rcv_msg(ring_t *r) {
 
             switch (fr_hdr->nm_status) {
             case NL_MMAP_STATUS_VALID:
-                printf("Got mmaped frame.\n");
                 nlh = (struct nlmsghdr *)((void *)fr_hdr + NL_MMAP_HDRLEN);
                 len = fr_hdr->nm_len;
-                printf("Frame len: %d.\n", len);
                 if (len != 0) process_msg(nlh);
                 break;
 
             case NL_MMAP_STATUS_COPY:
-                printf("Got sent frame.\n");
+                printf("Frame could not mapped. Back to regular recv()\n");
                 if ((len = recv(r->fd, buf, sizeof(buf), MSG_DONTWAIT)) <= 0) break;
                 nlh = (struct nlmsghdr *)buf;
                 process_msg(nlh);
@@ -176,6 +203,8 @@ int main(int argc, char **argv) {
     struct nl_mmap_req req;
     char *message =
         "So logn-long-long message to kernel from userspace application. Bla-bla-bla! Hello!";
+    char *another_message =
+        "Another long-long-long message to kernel from userspace application. Hello one more time!";
     ring_t r;
     int bytes_sent = 0;
 
@@ -218,6 +247,12 @@ int main(int argc, char **argv) {
     dest_addr.nl_groups = NETLINK_UNICAST_SEND;
 
     if ((bytes_sent = msg_send(&r, (void *)message, strlen(message) + 1)) == 0)
+        err(EXIT_FAILURE, "Sending error ", strerror(errno));
+
+    if ((bytes_sent = msg_send(&r, NULL, 0)) == 0)
+        err(EXIT_FAILURE, "Sending error ", strerror(errno));
+
+    if ((bytes_sent = msg_send(&r, (void*)another_message, strlen(another_message) + 1)) == 0)
         err(EXIT_FAILURE, "Sending error ", strerror(errno));
 
     printf("Message size: %d, %d bytes sent to kernel.\n", strlen(message), bytes_sent);
