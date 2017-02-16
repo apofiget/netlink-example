@@ -9,10 +9,10 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 189
+ *     Update #: 196
  * URL:
- * Doc URL:
- * Keywords:
+ * Doc URL: https://fpbrain.blogspot.ru/2017/02/mmaped-netlink-in-linux-kernel-zero.html
+ * Keywords: linux, netlink, mmap
  * Compatibility:
  *
  */
@@ -102,7 +102,6 @@ static int hello_nl_recv_msg(struct sk_buff *skb, struct nlmsghdr *nlh) {
     };
 
     return netlink_dump_start(nl_sk, skb, nlh, &c);
-
 }
 
 static void if_rcv(struct sk_buff *skb) {
@@ -129,9 +128,7 @@ static int __init kern_netlink_init(void) {
     return 0;
 }
 
-static void __exit kern_netlink_exit(void) {
-    netlink_kernel_release(nl_sk);
-}
+static void __exit kern_netlink_exit(void) { netlink_kernel_release(nl_sk); }
 
 module_init(kern_netlink_init);
 module_exit(kern_netlink_exit);

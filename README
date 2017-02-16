@@ -1,8 +1,13 @@
 Description:
  Very simple example of Linux kernel Netlink API usage.
 
+How to make and run:
+- make && cd src && sudo insmod ./kenel_netlink.ko  && sudo ./userspace_netlink_mmaped
+
 References:
+- https://fpbrain.blogspot.ru/2017/02/mmaped-netlink-in-linux-kernel-zero.html
 - http://natsys-lab.blogspot.ru/2015/03/linux-netlink-mmap-bulk-data-transfer.html
 - https://github.com/tempesta-tech/tempesta/blob/master/tempesta_db/core/if.c
 - https://github.com/tempesta-tech/tempesta/blob/master/tempesta_db/libtdb/handler.cc
 - https://github.com/kaber/netlink-mmap/blob/master/Documentation/networking/netlink_mmap.txt
+

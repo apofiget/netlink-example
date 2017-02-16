@@ -9,10 +9,10 @@
  * Package-Requires: ()
  * Last-Updated:
  *           By:
- *     Update #: 268
+ *     Update #: 269
  * URL:
- * Doc URL:
- * Keywords:
+ * Doc URL: https://fpbrain.blogspot.ru/2017/02/mmaped-netlink-in-linux-kernel-zero.html
+ * Keywords: linux, netlink, mmap
  * Compatibility:
  *
  */
