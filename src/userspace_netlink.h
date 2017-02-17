@@ -11,7 +11,7 @@
  *           By:
  *     Update #: 12
  * URL:
- * Doc URL:
+ * Doc URL: https://fpbrain.blogspot.ru/2017/02/mmaped-netlink-in-linux-kernel-zero.html
  * Keywords:
  * Compatibility:
  *
